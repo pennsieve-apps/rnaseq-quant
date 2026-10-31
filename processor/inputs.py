@@ -5,9 +5,10 @@ samples (by Illumina-style names, or by the optional sample sheet), and the file
 from __future__ import annotations
 
 import csv
+import gzip
 import json
-import os
 import re
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,20 +27,6 @@ def sanitise(name: str) -> str:
 
 def rel(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
-
-
-def walk_files(root: Path) -> list[Path]:
-    """Every file under root (symlinks followed, loops and hidden entries skipped), sorted."""
-    out, seen = [], set()
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
-        real = os.path.realpath(dirpath)
-        if real in seen:
-            dirnames[:] = []
-            continue
-        seen.add(real)
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        out += [Path(dirpath, f) for f in sorted(filenames) if not f.startswith(".") and Path(dirpath, f).is_file()]
-    return out
 
 
 # --- index ---------------------------------------------------------------------------------
@@ -76,6 +63,7 @@ class Sample:
     folder: Path                                   # where its files are (SPARC sam-/pool-/sub- folders above it)
     extra: dict[str, str] = field(default_factory=dict)   # sample sheet columns
     error: str | None = None
+    notes: list[str] = field(default_factory=list)
 
     @property
     def paired(self) -> bool:
@@ -94,8 +82,27 @@ def parse_name(path: Path) -> tuple[str, str, str] | None:
     return m.group("stem"), m.group("lane") or "", m.group("read") or "1"
 
 
+def first_read_name(path: Path) -> str | None:
+    """The name of a FASTQ's first record (before the first space, without /1 or /2); None if unreadable."""
+    try:
+        with open(path, "rb") as fh:
+            gz = fh.read(2) == b"\x1f\x8b"
+        with (gzip.open(path, "rb") if gz else open(path, "rb")) as fh:
+            line = fh.readline(4096)
+    except (OSError, EOFError, zlib.error):
+        return None
+    words = line[1:].split(None, 1)
+    if not line.startswith(b"@") or not words:
+        return None
+    return re.sub(rb"/[12]$", b"", words[0]).decode("ascii", "replace")
+
+
 def group_fastqs(fastqs: list[Path], root: Path) -> tuple[list[Sample], list[dict]]:
-    """Samples by file name, per folder: lanes of one sample together, paired when every R1 has its R2."""
+    """
+    Samples by file name, per folder: lanes of one sample together, paired when every R1 has its
+    R2 and their first records have the same read name (so single-end files that happen to be
+    named _1/_2 are not merged). Sample ids must stay unique after sanitising.
+    """
     groups: dict[tuple[Path, str], dict[str, dict[str, Path]]] = {}
     ignored = []
     for f in fastqs:
@@ -110,23 +117,48 @@ def group_fastqs(fastqs: list[Path], root: Path) -> tuple[list[Sample], list[dic
             # same stem, read and lane twice (e.g. sample.fastq.gz next to sample.fq): keep files apart
             key = f.name
         reads[read][key] = f
-    stems: dict[str, int] = {}
-    for _, stem in groups:
-        stems[stem] = stems.get(stem, 0) + 1
-    samples = []
+    named: list[tuple[str, Sample]] = []          # (name before sanitising, sample)
     for (folder, stem), reads in sorted(groups.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
-        sid = sanitise(stem if stems[stem] == 1 else f"{folder.name}_{stem}")
         r1 = [reads["1"][k] for k in sorted(reads["1"])]
         r2 = [reads["2"][k] for k in sorted(reads["2"])]
-        s = Sample(sid, r1, [], folder)
+        s = Sample("", r1, [], folder)
         if not r1:
             s.r1, s.error = r2, "only read 2 files (R2/_2) found"
         elif r2 and sorted(_lanes(r1)) == sorted(_lanes(r2)) and len(r1) == len(r2):
-            s.r2 = r2
+            if all(first_read_name(a) is not None and first_read_name(a) == first_read_name(b) for a, b in zip(r1, r2)):
+                s.r2 = r2
+            else:
+                # read 1 and read 2 by name, but not mates: each file is a single-end sample of its own
+                for f in r1 + r2:
+                    one = Sample("", [f], [], folder)
+                    one.notes.append(f"named like read {parse_name(f)[2]} of {stem}, but its first read name does "
+                                     "not match its mate file's: quantified as a single-end sample of its own")
+                    named.append((FASTQ_RE.sub("", f.name), one))
+                continue
         elif r2:
             s.error = f"{len(r1)} read 1 and {len(r2)} read 2 files that do not pair up by lane"
-        samples.append(s)
-    return samples, ignored
+        named.append((stem, s))
+    _assign_ids(named, root)
+    return [s for _, s in named], ignored
+
+
+def _assign_ids(named: list[tuple[str, Sample]], root: Path) -> None:
+    """sample_id = the sanitised name; where that clashes, the sanitised relative folder path + name;
+    a clash left after that fails every sample involved."""
+    def ids(full: set[int]) -> list[str]:
+        out = []
+        for i, (name, s) in enumerate(named):
+            folder = rel(s.folder, root) if s.folder != root else ""
+            out.append(sanitise(f"{folder}_{name}" if i in full and folder else name))
+        return out
+    first = ids(set())
+    counts = {x: first.count(x) for x in first}
+    final = ids({i for i, x in enumerate(first) if counts[x] > 1})
+    for i, (_, s) in enumerate(named):
+        s.sample_id = final[i]
+        if final.count(final[i]) > 1:
+            s.error = (f"sample_id {final[i]} is not unique even with its folder path "
+                       f"({', '.join(s.files(root))}); give the samples ids in a sample sheet")
 
 
 def _lanes(files: list[Path]) -> list[str]:

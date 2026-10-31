@@ -17,7 +17,9 @@ first), then `salmon quant -l A --seqBias` (+ `--gcBias` for paired-end) against
 rnaseq-index index (salmon 2.8.0: selective alignment, deterministic two-phase inference).
 Gene level is tximport's `countsFromAbundance = "lengthScaledTPM"` (Soneson et al. 2015),
 re-implemented in `processor/aggregate.py` from tximport's `summarizeToGene()` and
-`makeCountsFromAbundance()` and checked against tximport 1.40.0 itself (see "Results").
+`makeCountsFromAbundance()` (thelovelab/tximport, devel commit `2c53267`) and checked against
+tximport 1.40.0 itself (see "Results"; `tests/golden/` keeps a 30-gene cut of that comparison as a
+test).
 Counts are rounded to integers. This follows established practice (Conesa et al. 2016:
 quality control and trimming, transcript-level quantification; Love et al. 2015 / Soneson et
 al. 2015: transcript estimates summarised to genes for count-based DE).
@@ -27,7 +29,7 @@ al. 2015: transcript estimates summarised to genes for count-based DE).
 | Port | Direction | What |
 |---|---|---|
 | `reads` | input (subfolder), required | FASTQ (`.fastq.gz`, `.fq.gz`, `.fastq`, `.fq`) anywhere below; optional `samples.csv` sample sheet; optional SPARC `samples.xlsx` / `subjects.xlsx` (or `.csv`/`.tsv`). |
-| `index` | input (subfolder), required | rnaseq-index's output (a folder with `index.json`, `salmon/`, `tx2gene.csv`); normally a workspace reference. |
+| `index` | input (subfolder), required | rnaseq-index's output (a folder with `index.json`, `salmon/`, `tx2gene.csv`); normally a workspace reference. Its salmon index format (`index_version`, `sshash_format_version` in `salmon/info.json`) must be the one this image's salmon writes (checked at start by indexing two short sequences; salmon 2.8: 2 / 5). salmon 2.9 moved to format 3, so an index from a 2.9-based rnaseq-index is refused here (exit 1), and vice versa. |
 | `counts` | output | `OUTPUT_DIR/counts/`: gene tables, sample table, QC; feeds bulk-de. |
 | `transcripts` | output | `OUTPUT_DIR/transcripts/`: salmon's per-sample transcript estimates. |
 
@@ -36,10 +38,13 @@ Without links, everything may sit in `INPUT_DIR`: the index is the folder holdin
 
 **Samples.** Grouped by file name within a folder: `<sample>_S<n>_L<lane>_R<1|2>_001`,
 `<sample>_R1/_R2`, `<sample>_1/_2`, or no read tag (single-end). Lanes of one sample are
-concatenated; a sample is paired-end when every R1 has its R2 (same lane), single-end when it
-has no R2, and fails (logged, skipped) when its R1/R2 files do not pair up or it has only
-R2. Index reads (`_I1`, `_I2`) are ignored. The same name in two folders becomes
-`<folder>_<name>`. A sample sheet (`SAMPLE_SHEET`, default `samples.csv`, with
+concatenated; a sample is paired-end when every R1 has its R2 (same lane) **and** the first
+records of R1 and R2 carry the same read name (after the first space, without `/1` `/2`);
+otherwise each file is a single-end sample of its own, with a warning (single-end runs named
+`SRR…_1` / `SRR…_2` are not merged into a fake pair). A sample with only R2, or with R1/R2 that
+do not pair up by lane, fails (logged, skipped). Index reads (`_I1`, `_I2`) are ignored.
+Sample ids are the sanitised names; when two clash, each gets its relative folder path as a
+prefix, and a clash left after that fails both (give ids in a sample sheet). A sample sheet (`SAMPLE_SHEET`, default `samples.csv`, with
 `sample_id, fastq_1, fastq_2`, then any metadata columns; one row per sample or per lane)
 replaces the grouping: only its samples are run, its paths are matched against the files
 found under the input (equal to, or the end of, their relative path; absolute paths and `..`
@@ -60,13 +65,23 @@ both and win over SPARC ones.
 | Name | Default | Effect |
 |---|---|---|
 | `SAMPLE_SHEET` | `samples.csv` | File name of the optional sample sheet (shallowest wins). A file of that name without a `fastq_1` column (e.g. a SPARC `samples.csv`) is not a sheet. |
-| `METADATA_COLUMNS` | `subject_experimental_group,sample_experimental_group,sex,age,species,sample_anatomical_location,laterality` | SPARC columns copied into `samples.csv` (snake_case). |
+| `METADATA_COLUMNS` | `subject_id,subject_experimental_group,sample_experimental_group,sex,age,species,sample_anatomical_location,laterality` | SPARC columns copied into `samples.csv` (snake_case). A pooled library gets every pooled value, `;`-joined (e.g. `subject_id` = `sub-M7;sub-M8`). |
 | `THREADS` | `0` | Threads for fastp (at most 16) and salmon; 0 = the container's CPU quota. |
 
-Bad values exit 2. No index, an index from another salmon major version, or no FASTQ: exit 1.
-A failing sample is logged and skipped; the run fails (exit 1) only when every sample failed.
+Bad values exit 2. No index, an index of another salmon index format, or no FASTQ: exit 1.
+A failing sample (bad input) is logged and skipped; the run fails (exit 1) when every sample
+failed. When fastp or salmon is **killed** (signal, exit 137: in practice the out-of-memory
+killer), the run stops at once with exit 1 and writes no gene tables: the remaining samples
+would fail the same way, and a table missing some of them would hide it.
 There is no seed: fastp is deterministic and salmon 2.8's default inference is byte-identical
 across runs and thread counts.
+
+**Untrusted input.** Files are read only inside the input (`processor/safe_inputs.py`, shared
+verbatim by the workflow apps): symlinks are followed while they resolve inside `INPUT_DIR` or
+inside the targets of the links the platform places there; others are skipped and logged.
+Sample-sheet paths only ever match files found that way. SPARC `.xlsx` files are parsed only
+through defusedxml (checked at run time) and refused above 20 MB on disk or 200 MB uncompressed
+(zip-bomb guard).
 
 ## Outputs
 
@@ -79,14 +94,22 @@ across runs and thread counts.
 - `samples.csv`: `sample_id`, `files` (relative paths, `;`-separated), `layout` (`single`,
   `paired`), `reads_in` and `reads_after_trim` (reads, or read pairs for paired-end, from
   fastp), `mapping_rate` (fraction of trimmed fragments salmon mapped), `library_type`
-  (salmon's detected type: `U`, `SF`, `SR`, `IU`, `ISF`, `ISR`, ...), then sample sheet and
-  allow-listed SPARC columns.
+  (salmon's detected type: `U`, `SF`, `SR`, `IU`, `ISF`, `ISR`, ...), `strand_mapping_bias` and
+  `compatible_fragment_ratio` (from salmon's `lib_format_counts.json`), `salmon_warnings`
+  (salmon's diagnostics, e.g. a strand bias in an unstranded library; `;`-separated), then
+  sample sheet and allow-listed SPARC columns.
 - `samples_full.csv`: `sample_id` and every metadata column.
-- `qc/<sample_id>.fastp.json`, `qc/<sample_id>.fastp.html` (fastp's reports),
+- `qc/<sample_id>.fastp.json`, `qc/<sample_id>.fastp.html` (fastp's reports; the HTML loads
+  plotly from `cdn.plot.ly` / `opengene.org` when opened, so its charts need a network
+  connection in the browser; the JSON has the same numbers),
   `qc/<sample_id>.salmon.json` (salmon's `meta_info.json` and `lib_format_counts.json`).
 - `summary.json`: samples, genes, median mapping rate, layouts, library types, index
-  (organism, source, decoys, salmon version), per sample reads, mapping rate, genes detected,
-  assigned counts; `skipped` and `ignored` files.
+  (organism, source, decoys, salmon version and index format), per sample reads, mapping rate,
+  library type, strand bias, compatible fragment ratio, salmon's warnings, genes detected,
+  assigned counts; `warnings` (each also logged as a WARNING: salmon's diagnostics per sample;
+  a mapping rate below 0.8 x the run's median; library types that differ between samples;
+  single- and paired-end samples in one run; files split from a fake pair); `skipped`,
+  `ignored`, and `aborted` when the run was stopped.
 - `provenance.json`: versions (salmon, fastp, Python packages), parameters, inputs found
   (incl. the index's `index.json`), per-sample status and timings, peak memory, `citations`.
 
@@ -97,8 +120,12 @@ tximeta and fishpond read, for transcript-level or isoform analyses; `provenance
 ## Runtime
 
 `computeTypes: [standard]`, 8 vCPU / 16 GiB, 12 h timeout. One sample at a time; per sample the
-work folder in `/tmp` (ephemeral disk) holds the lanes concatenated (only when there are several)
-and the trimmed reads (gzip level 1), about the size of the input FASTQ, and is removed afterwards.
+work folder in `/tmp` (on the platform the task's ephemeral disk, 20 GiB by default on Fargate)
+holds the lanes concatenated (only when there are several), the trimmed reads (gzip level 1:
+40 MB per million 50 bp single-end reads) and salmon's intermediate mapping file (RAD, 133 MB per
+million such reads, measured), and is removed afterwards: about 1.7 GB per 10 M single-end 50 bp
+reads, more for longer or paired-end reads. A 50 M-pair 2x150 bp library needs roughly 20 GB:
+raise the ephemeral storage for deep libraries.
 Memory is salmon's: the index (1.3 GB on disk for GENCODE M39 transcripts) plus the mapping and
 inference state, independent of the number of samples.
 
@@ -121,7 +148,7 @@ file are written while it runs); 16 GiB is ample for a transcripts-only index.
 So a typical bulk library (25 M reads) takes about 5 minutes on 4 emulated vCPUs; 100 such
 samples fit in the 12 h timeout on 8 vCPUs. A decoy-aware index is much larger (2.2 billion
 k-mers for mouse vs 179 M, see rnaseq-index) and was not measured here: it raises salmon's
-memory, which is why the default is 16 GiB rather than 8. Image: 341 MB (80 MB compressed).
+memory, which is why the default is 16 GiB rather than 8. Image: 344 MB (fastp built from source, statically linked).
 
 ## Results on the demo data
 
@@ -172,8 +199,11 @@ pools of the same tissue.
   libraries get sequence-bias correction only.
 - No UMI deduplication or rRNA removal: the app is for standard poly-A or ribo-depleted bulk
   libraries. 3'-tag libraries (QuantSeq, BRB-seq) need different counting.
-- Library type is detected per sample; a mix of strandedness across samples is reported in
-  `summary.json` but not acted on.
+- Library type is detected per sample; a mix of strandedness across samples is warned about in
+  the log and `summary.json` but not acted on.
+- Single- and paired-end libraries in one run are quantified alike, but their counts differ
+  systematically (fragment length and GC correction, mappability): include `layout` (in
+  `samples.csv`) as a covariate in the DE design, or analyse them separately.
 
 ## Deviations from the brief
 
@@ -187,7 +217,8 @@ pools of the same tissue.
 ## Licences
 
 Our code: Apache-2.0 (`LICENSE`). salmon 2.x is BSD-3-Clause (C++ salmon ≤ 1.12 was GPL-3.0),
-fastp MIT, pandas / NumPy BSD-3-Clause, openpyxl MIT, defusedxml PSF-2.0; nothing in the image
+fastp MIT (built with ISA-L BSD-3-Clause, libdeflate MIT, Highway Apache-2.0/BSD-3-Clause),
+pandas / NumPy BSD-3-Clause, openpyxl MIT, defusedxml PSF-2.0; nothing in the image
 is GPL. The lengthScaledTPM formula is implemented from the paper and tximport's (LGPL) source;
 no tximport code is included. See `THIRD_PARTY.md`.
 
@@ -196,7 +227,10 @@ no tximport code is included. See `THIRD_PARTY.md`.
 - **salmon** (Rob Patro and the COMBINE-lab; Patro, Duggal, Love, Irizarry, Kingsford)
   quantifies each sample's transcripts.
 - **fastp** (Shifu Chen and OpenGene; Chen, Zhou, Chen, Gu) trims reads and writes the QC
-  reports.
+  reports; built here from source with Intel's **ISA-L**, Eric Biggers' **libdeflate** and
+  Google's **Highway**.
+- **Selective alignment with decoys** (Srivastava, Malik, Sarkar, Zakeri, Almodaresi, Soneson,
+  Love, Kingsford, Patro) is cited when the index has decoys.
 - **tximport** (Soneson, Love, Robinson) defines the lengthScaledTPM gene-level summary this
   app re-implements.
 - **GENCODE** (the GENCODE consortium; Mudge, Frankish et al.) provides the demo annotation,
@@ -224,9 +258,13 @@ DataCite and the Discover API. Full author lists are in `CITATION.cff`.
   doi:10.12688/f1000research.7563.2. PMID 26925227. (version 2, the one PubMed indexes;
   Crossref dates version 1, doi:10.12688/f1000research.7563.1, 2015-12-30 and version 2
   2016-02-29)
+- Srivastava A, Malik L, Sarkar H, Zakeri M, Almodaresi F, Soneson C, Love MI, Kingsford C,
+  Patro R. Alignment and mapping methodology influence transcript abundance estimation.
+  *Genome Biol* 21(1):239 (2020). doi:10.1186/s13059-020-02151-8. PMID 32894187. (cited in
+  provenance when the index has decoys)
 - Mudge JM, Carbonell-Sala S, Diekhans M, et al. (56 authors). GENCODE 2025: reference gene
   annotation for human and mouse. *Nucleic Acids Res* 53(D1):D966-D975 (2025).
-  doi:10.1093/nar/gkae1078. PMID 39565199.
+  doi:10.1093/nar/gkae1078. PMID 39565199. (cited in provenance for a GENCODE index)
 - Conesa A, Madrigal P, Tarazona S, Gomez-Cabrero D, Cervera A, McPherson A, Szcześniak MW,
   Gaffney DJ, Elo LL, Zhang X, Mortazavi A. A survey of best practices for RNA-seq data
   analysis. *Genome Biol* 17:13 (2016). doi:10.1186/s13059-016-0881-8. PMID 26813401.

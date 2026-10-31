@@ -32,6 +32,7 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 
 from processor import resources
+from processor.safe_inputs import InputDir, cpu_threads
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("rnaseq-quant")
@@ -39,9 +40,11 @@ log = logging.getLogger("rnaseq-quant")
 APP_NAME = "rnaseq-quant"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORK_ROOT = Path("/tmp/rnaseq-quant")
-SAMPLE_COLUMNS = ["sample_id", "files", "layout", "reads_in", "reads_after_trim", "mapping_rate", "library_type"]
-DEFAULT_METADATA = ("subject_experimental_group,sample_experimental_group,sex,age,species,"
+SAMPLE_COLUMNS = ["sample_id", "files", "layout", "reads_in", "reads_after_trim", "mapping_rate", "library_type",
+                  "strand_mapping_bias", "compatible_fragment_ratio", "salmon_warnings"]
+DEFAULT_METADATA = ("subject_id,subject_experimental_group,sample_experimental_group,sex,age,species,"
                     "sample_anatomical_location,laterality")
+LOW_MAPPING_FACTOR = 0.8          # a sample mapping below 0.8 x the run's median is flagged
 DEFAULTS = {"SAMPLE_SHEET": "samples.csv", "METADATA_COLUMNS": DEFAULT_METADATA, "THREADS": "0"}
 CITATIONS = [
     {"doi": "10.1038/nmeth.4197", "pmid": "28263959", "text": "Patro et al. Nature Methods 2017"},
@@ -49,6 +52,8 @@ CITATIONS = [
     {"doi": "10.1002/imt2.70078", "pmid": "41112039", "text": "Chen. iMeta 2025"},
     {"doi": "10.12688/f1000research.7563.2", "pmid": "26925227", "text": "Soneson et al. F1000Research 2015"},
 ]
+DECOY_CITATION = {"doi": "10.1186/s13059-020-02151-8", "pmid": "32894187", "text": "Srivastava et al. Genome Biology 2020"}
+GENCODE_CITATION = {"doi": "10.1093/nar/gkae1078", "pmid": "39565199", "text": "Mudge et al. Nucleic Acids Research 2025"}
 NUM_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 
 
@@ -81,8 +86,29 @@ def write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def major(version: str) -> str:
-    return str(version).split(".")[0]
+INDEX_FORMAT_KEYS = ("index_version", "sshash_format_version")
+
+
+def index_format(salmon_dir: Path) -> dict:
+    info = json.loads((salmon_dir / "info.json").read_text())
+    return {k: info.get(k) for k in INDEX_FORMAT_KEYS}
+
+
+def own_index_format(salmon: str) -> dict:
+    """The index format this image's salmon writes: index two short random sequences and read info.json."""
+    import random
+    import subprocess
+
+    d = Path("/tmp/rnaseq-quant-probe")
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True)
+    rng = random.Random(0)
+    (d / "t.fa").write_text("".join(f">t{i}\n{''.join(rng.choice('ACGT') for _ in range(200))}\n" for i in range(2)))
+    subprocess.run([salmon, "index", "-t", str(d / "t.fa"), "-i", str(d / "idx"), "-p", "1", "-q"],
+                   check=True, capture_output=True)
+    fmt = index_format(d / "idx")
+    shutil.rmtree(d, ignore_errors=True)
+    return fmt
 
 
 def main() -> int:
@@ -97,7 +123,7 @@ def main() -> int:
     except ValueError as exc:
         log.error("bad parameter: %s", exc)
         return 2
-    n_threads = resources.threads(params["THREADS"])
+    n_threads = cpu_threads(params["THREADS"])
     for v in NUM_THREAD_VARS:
         os.environ[v] = str(n_threads)
 
@@ -108,19 +134,25 @@ def main() -> int:
     from processor import pipeline as P
     from processor import sparc as S
 
-    input_dir, output_dir = Path(input_dir), Path(output_dir)
+    input_dir, output_dir = Path(input_dir).absolute(), Path(output_dir).absolute()
 
     # 1. what is there
-    files = I.walk_files(input_dir)
+    files = InputDir(input_dir).walk()           # symlinks that lead out of the input are skipped and logged
     try:
         index = I.find_index(files, input_dir)
     except (ValueError, OSError) as exc:
         log.error("%s", exc)
         return 1
     salmon_version = P.tool_version(P.SALMON)
-    if major(index.info.get("salmon_version", "")) != major(salmon_version):
-        log.error("the index was built with salmon %s; this app runs salmon %s (major versions differ): rebuild it "
-                  "with rnaseq-index", index.info.get("salmon_version"), salmon_version)
+    try:
+        theirs, ours = index_format(index.salmon), own_index_format(P.SALMON)
+    except (OSError, ValueError) as exc:
+        log.error("cannot read the index's salmon/info.json: %s", exc)
+        return 1
+    if theirs != ours:
+        log.error("the index was built with salmon %s (index format %s); this app's salmon %s reads format %s: "
+                  "rebuild it with the matching rnaseq-index", index.info.get("salmon_version"), theirs,
+                  salmon_version, ours)
         return 1
     fastqs = [f for f in files if I.FASTQ_RE.search(f.name) and not f.is_relative_to(index.root)]
     sheet_path = next((f for f in sorted(files, key=lambda p: (len(p.parts), str(p)))
@@ -143,7 +175,7 @@ def main() -> int:
         log.error("sample sheet row %s: %s", e["sample_id"] or "?", e["reason"])
     try:
         sparc = S.load(S.find(files, input_dir, sheet.path), input_dir)
-    except (ValueError, OSError, KeyError) as exc:
+    except (ValueError, OSError, KeyError) as exc:     # UnsafeInput is a ValueError
         log.warning("SPARC metadata not used: %s", exc)
         sparc = S.Sparc()
     log.info("input: index %s (%s, %s, decoys %s), %d FASTQ files, %d sample(s), sample sheet %s, SPARC %s, "
@@ -161,18 +193,23 @@ def main() -> int:
 
     # 2. one sample at a time
     rows, prov_samples, quants = [], [], {}
+    warnings: list[str] = []
+    aborted = None
     reserved = set(SAMPLE_COLUMNS) | set(sheet.columns)
     full_meta: dict[str, dict[str, str]] = {}
     for s in samples:
         t0 = time.monotonic()
         layout = "paired" if s.paired else "single"
+        for note in s.notes:
+            log.warning("%s: %s", s.sample_id, note)
+            warnings.append(f"{s.sample_id}: {note}")
         if s.error:
             log.error("%s: skipped: %s", s.sample_id, s.error)
             skipped.append({"sample_id": s.sample_id, "reason": s.error})
             prov_samples.append({"sample_id": s.sample_id, "status": "failed", "error": s.error})
             continue
         try:
-            r = P.run_sample(s.sample_id, s.r1, s.r2, index.salmon, n_threads, WORK_ROOT, time.monotonic)
+            r = P.run_sample(s.sample_id, s.r1, s.r2, index.salmon, n_threads, WORK_ROOT)
             shutil.copy(r.fastp_json, qc_dir / f"{s.sample_id}.fastp.json")
             shutil.copy(r.fastp_html, qc_dir / f"{s.sample_id}.fastp.html")
             meta = json.loads((r.salmon_dir / "aux_info" / "meta_info.json").read_text())
@@ -183,6 +220,13 @@ def main() -> int:
             for name in ("quant.sf", "cmd_info.json", "lib_format_counts.json", "aux_info/meta_info.json"):
                 shutil.copy(r.salmon_dir / name, dst / name)
             shutil.rmtree(r.work, ignore_errors=True)
+        except P.KilledError as exc:
+            aborted = f"{s.sample_id}: {exc}"
+            log.error("%s: %s; stopping the run", s.sample_id, exc)
+            skipped.append({"sample_id": s.sample_id, "reason": str(exc)})
+            prov_samples.append({"sample_id": s.sample_id, "status": "killed", "error": str(exc)})
+            shutil.rmtree(WORK_ROOT / s.sample_id, ignore_errors=True)
+            break
         except Exception as exc:  # noqa: BLE001 - one sample's failure must not sink the run
             log.error("%s: FAILED: %s\n%s", s.sample_id, exc, traceback.format_exc(limit=3))
             skipped.append({"sample_id": s.sample_id, "reason": str(exc).splitlines()[0]})
@@ -196,7 +240,12 @@ def main() -> int:
         full_meta[s.sample_id] = meta_cols
         rows.append({"sample_id": s.sample_id, "files": ";".join(s.files(input_dir)), "layout": layout,
                      "reads_in": r.reads_in, "reads_after_trim": r.reads_after_trim,
-                     "mapping_rate": r.mapping_rate, "library_type": r.library_type})
+                     "mapping_rate": r.mapping_rate, "library_type": r.library_type,
+                     "strand_mapping_bias": r.strand_mapping_bias, "compatible_fragment_ratio": r.compatible_fragment_ratio,
+                     "salmon_warnings": "; ".join(r.warnings)})
+        for w in r.warnings:
+            log.warning("%s: salmon: %s", s.sample_id, w)
+            warnings.append(f"{s.sample_id}: salmon: {w}")
         seconds = round(time.monotonic() - t0, 1)
         prov_samples.append({"sample_id": s.sample_id, "status": "ok", "layout": layout, "files": s.files(input_dir),
                              "reads_in": r.reads_in, "reads_after_trim": r.reads_after_trim,
@@ -206,9 +255,25 @@ def main() -> int:
                  "(fastp %.0fs, salmon %.0fs)", s.sample_id, layout, len(s.r1) + len(s.r2), r.reads_in,
                  r.reads_after_trim, 100 * r.mapping_rate, r.library_type, seconds, r.seconds_fastp, r.seconds_salmon)
 
-    # 3. gene level, tables
+    # 3. run-level checks, gene level, tables
     summary: dict = {"n_samples": len(rows), "n_failed": len(skipped)}
+    run_warnings = []
+    if aborted:
+        summary["aborted"] = aborted
     if rows:
+        median = float(pd.Series([r["mapping_rate"] for r in rows]).median())
+        run_warnings += [f"{r['sample_id']}: mapping rate {r['mapping_rate']:.1%} is far below the run's median "
+                         f"{median:.1%}" for r in rows if r["mapping_rate"] < LOW_MAPPING_FACTOR * median]
+        if len({r["library_type"] for r in rows}) > 1:
+            run_warnings.append("library types differ between samples: " + ", ".join(
+                f"{r['sample_id']} {r['library_type']}" for r in rows))
+        if len({r["layout"] for r in rows}) > 1:
+            run_warnings.append("single- and paired-end samples in one run: include layout as a covariate in the "
+                                "differential expression design")
+    for w in run_warnings:
+        log.warning("%s", w)
+    warnings += run_warnings
+    if rows and not aborted:
         tx2gene = pd.read_csv(index.root / "tx2gene.csv", dtype=str, keep_default_na=False)
         q = G.read_quants(quants)
         counts, tpm, missing = G.length_scaled_tpm(q["TPM"], q["NumReads"], q["EffectiveLength"],
@@ -238,13 +303,18 @@ def main() -> int:
             "median_mapping_rate": float(pd.Series([r["mapping_rate"] for r in rows]).median()),
             "layouts": sorted({r["layout"] for r in rows}),
             "library_types": sorted({r["library_type"] for r in rows}),
-            "index": {k: index.info.get(k) for k in ("organism", "source", "assembly", "decoys", "salmon_version")},
+            "index": {k: index.info.get(k) for k in ("organism", "source", "assembly", "decoys", "salmon_version",
+                                                     "index_version", "sshash_format_version")},
             "samples": {r["sample_id"]: {"reads_in": r["reads_in"], "reads_after_trim": r["reads_after_trim"],
                                          "mapping_rate": r["mapping_rate"], "library_type": r["library_type"],
+                                         "strand_mapping_bias": r["strand_mapping_bias"],
+                                         "compatible_fragment_ratio": r["compatible_fragment_ratio"],
+                                         "salmon_warnings": r["salmon_warnings"],
                                          "genes_detected": int(detected[r["sample_id"]]),
                                          "assigned_counts": int(round(counts[r["sample_id"]].sum()))}
                         for r in rows},
         })
+    summary["warnings"] = warnings
     summary["skipped"] = skipped
     summary["ignored"] = ignored
     write_json(counts_dir / "summary.json", summary)
@@ -276,13 +346,17 @@ def main() -> int:
         "peak_rss_mb": max(peak.values()),
         "peak_rss_mb_by_process": peak,
         "cgroup_peak_mb": resources.cgroup_peak_mb(),
-        "citations": CITATIONS,
+        "citations": CITATIONS + ([DECOY_CITATION] if index.info.get("decoys") else [])
+                     + ([GENCODE_CITATION] if str(index.info.get("detected_source") or index.info.get("source", "")).startswith("GENCODE") else []),
     }
     for d in (counts_dir, tx_dir):
         write_json(d / "provenance.json", provenance)
     shutil.rmtree(WORK_ROOT, ignore_errors=True)
     log.info("%d sample(s) quantified, %d failed, %.0fs, peak RSS %s MB", len(rows), len(skipped),
              provenance["seconds"], provenance["peak_rss_mb"])
+    if aborted:
+        log.error("run stopped (no gene tables written): %s", aborted)
+        return 1
     if not rows:
         log.error("every sample failed")
         return 1

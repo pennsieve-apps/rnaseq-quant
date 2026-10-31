@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import math
 import os
@@ -67,13 +68,15 @@ def test_run_writes_the_counts_contract(outputs, layout):
     assert (out / "transcripts" / "B1" / "aux_info" / "meta_info.json").is_file()
 
     table = {r["sample_id"]: r for r in rows(c / "samples.csv")}
-    assert list(next(iter(table.values())))[:7] == app.SAMPLE_COLUMNS
+    assert list(next(iter(table.values())))[:10] == app.SAMPLE_COLUMNS
     assert table["A1"]["layout"] == "single" and table["A1"]["files"].count(";") == 1     # two lanes
     assert table["B1"]["layout"] == "paired" and table["B1"]["library_type"] == "IU"
     assert table["C1"]["library_type"] == "U"
     assert all(int(r["reads_in"]) == 3000 and float(r["mapping_rate"]) > 0.95 for r in table.values())
     # SPARC: pools combined, allow-listed columns only in samples.csv, everything in samples_full.csv
     assert table["A1"]["sex"] == "female" and table["B1"]["subject_experimental_group"] == "Tumor"
+    assert table["A1"]["subject_id"] == "sub-1;sub-2"                   # pooled library: both mice
+    assert float(table["B1"]["compatible_fragment_ratio"]) > 0.9 and table["A1"]["strand_mapping_bias"] != ""
     assert table["C1"]["sample_experimental_group"] == "tumour"
     assert "date_of_birth" not in table["A1"]
     full = {r["sample_id"]: r for r in rows(c / "samples_full.csv")}
@@ -96,6 +99,8 @@ def test_run_writes_the_counts_contract(outputs, layout):
 
     summary = json.loads((c / "summary.json").read_text())
     assert summary["n_samples"] == 3 and [x["sample_id"] for x in summary["skipped"]] == ["D1"]
+    assert "strand_mapping_bias" in summary["samples"]["A1"]
+    assert any("single- and paired-end" in w for w in summary["warnings"])
     assert {i["reason"] for i in summary["ignored"]} == {"index read (I1/I2)"}
     prov = json.loads((c / "provenance.json").read_text())
     assert prov["app"] == "rnaseq-quant" and prov["version"] == "0.1.0" and prov["n_ok"] == 3 and prov["n_failed"] == 1
@@ -120,12 +125,31 @@ def test_sample_sheet_defines_the_samples(tmp_path, monkeypatch):
 
 
 @needs_tools
-def test_index_of_another_salmon_major_is_refused(tmp_path, monkeypatch):
+def test_index_of_another_format_is_refused(tmp_path, monkeypatch):
     fx = make_fixture(tmp_path / "fx")
-    info = json.loads((fx / "index" / "index.json").read_text())
-    info["salmon_version"] = "1.10.3"
-    (fx / "index" / "index.json").write_text(json.dumps(info))
+    info = json.loads((fx / "index" / "salmon" / "info.json").read_text())
+    info["index_version"] = 3                      # e.g. built by salmon 2.9
+    (fx / "index" / "salmon" / "info.json").write_text(json.dumps(info))
     assert run(fx, tmp_path / "out", monkeypatch) == 1
+
+
+@needs_tools
+def test_salmon_killed_stops_the_run(tmp_path, monkeypatch):
+    from processor import pipeline as P
+
+    fx = make_fixture(tmp_path / "fx")
+    calls = []
+
+    def killed(*args, **kwargs):
+        calls.append(args[0])
+        raise P.KilledError("salmon was killed (exit -9); most likely out of memory")
+    monkeypatch.setattr(P, "run_sample", killed)
+    out = tmp_path / "out"
+    assert run(fx, out, monkeypatch) == 1
+    assert len(calls) == 1                                          # the next samples were not attempted
+    assert not (out / "counts" / "gene_counts.csv").exists()
+    summary = json.loads((out / "counts" / "summary.json").read_text())
+    assert "killed" in summary["aborted"]
 
 
 def test_bad_parameters_exit_2(tmp_path, monkeypatch):
@@ -151,13 +175,19 @@ def test_parse_name(name, expected):
     assert I.parse_name(Path(name)) == expected
 
 
+def fastq(path: Path, name: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt") as fh:
+        fh.write(f"@{name}\nACGT\n+\nFFFF\n")
+    return path
+
+
 def test_grouping(tmp_path):
-    names = ["a/x_S1_L001_R1_001.fastq.gz", "a/x_S1_L002_R1_001.fastq.gz", "a/x_S1_L001_R2_001.fastq.gz",
-             "a/x_S1_L002_R2_001.fastq.gz", "b/x_R1.fastq.gz", "c/y_R1.fq.gz", "c/y_R2.fq.gz", "d/z_2.fq.gz"]
-    for n in names:
-        (tmp_path / n).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / n).write_bytes(b"")
-    samples, _ = I.group_fastqs(sorted(tmp_path / n for n in names), tmp_path)
+    names = {"a/x_S1_L001_R1_001.fastq.gz": "r1 1:N", "a/x_S1_L002_R1_001.fastq.gz": "r9 1:N",
+             "a/x_S1_L001_R2_001.fastq.gz": "r1 2:N", "a/x_S1_L002_R2_001.fastq.gz": "r9 2:N",
+             "b/x_R1.fastq.gz": "q", "c/y_R1.fq.gz": "p/1", "c/y_R2.fq.gz": "p/2", "d/z_2.fq.gz": "z"}
+    files = sorted(fastq(tmp_path / n, r) for n, r in names.items())
+    samples, _ = I.group_fastqs(files, tmp_path)
     by = {s.sample_id: s for s in samples}
     assert set(by) == {"a_x", "b_x", "y", "z"}                 # same name in two folders: folder prefix
     assert by["a_x"].paired and len(by["a_x"].r1) == 2 and not by["b_x"].paired and by["y"].paired
@@ -230,3 +260,69 @@ def test_transcripts_missing_from_tx2gene_are_left_out():
     ab = pd.DataFrame({"s": [1.0, 2.0]}, index=["a", "b"])
     got, _, missing = G.length_scaled_tpm(ab, ab, ab + 100, pd.Series({"a": "g"}))
     assert missing == ["b"] and list(got.index) == ["g"]
+
+
+def test_single_end_files_named_1_2_are_not_merged(tmp_path, caplog):
+    files = [fastq(tmp_path / "liverA_1.fq.gz", "SRR1.1 a"), fastq(tmp_path / "liverA_2.fq.gz", "SRR2.1 b"),
+             fastq(tmp_path / "B.1.fq.gz", "x/1"), fastq(tmp_path / "B.2.fq.gz", "x/2")]
+    samples, _ = I.group_fastqs(sorted(files), tmp_path)
+    by = {s.sample_id: s for s in samples}
+    assert set(by) == {"liverA_1", "liverA_2", "B"}
+    assert not by["liverA_1"].paired and by["liverA_1"].notes and by["B"].paired
+
+
+def test_sample_ids_unique_after_sanitising(tmp_path):
+    files = [fastq(tmp_path / "p" / "s a_R1.fq.gz", "r"), fastq(tmp_path / "p" / "s_a_R1.fq.gz", "r"),
+             fastq(tmp_path / "q r" / "t_R1.fq.gz", "r"), fastq(tmp_path / "q_r" / "t_R1.fq.gz", "r")]
+    samples, _ = I.group_fastqs(sorted(files), tmp_path)
+    ids = [s.sample_id for s in samples]
+    # "s a" and "s_a" sanitise to the same id: prefixed with their folder, still the same -> both fail;
+    # t in "q r" and "q_r": the same after prefixing too -> both fail
+    assert all(s.error and "not unique" in s.error for s in samples) and len(ids) == 4
+    files2 = [fastq(tmp_path / "u" / "v_R1.fq.gz", "r"), fastq(tmp_path / "w" / "v_R1.fq.gz", "r")]
+    s2, _ = I.group_fastqs(sorted(files2), tmp_path)
+    assert sorted(s.sample_id for s in s2) == ["u_v", "w_v"] and not any(s.error for s in s2)
+
+
+def test_symlinks_out_of_the_input_are_skipped(tmp_path, monkeypatch, caplog):
+    outside = tmp_path / "outside"
+    fastq(outside / "secret_R1.fq.gz", "r")
+    inp = tmp_path / "in" / "reads" / "deeper"
+    inp.mkdir(parents=True)
+    (inp / "secret_R1.fq.gz").symlink_to(outside / "secret_R1.fq.gz")
+    assert run(tmp_path / "in", tmp_path / "out", monkeypatch) == 1      # nothing usable: no index either
+    from processor.safe_inputs import InputDir
+
+    assert InputDir(tmp_path / "in").walk() == []
+    assert "reads/deeper/secret_R1.fq.gz: resolves outside the input" in caplog.text
+
+
+def test_xlsx_parsing_is_defused_and_capped(tmp_path, monkeypatch):
+    import openpyxl
+
+    assert openpyxl.DEFUSEDXML is True
+    wb = openpyxl.Workbook()
+    wb.active.append(["sample id", "subject id"])
+    wb.active.append(["sam-1", "sub-1"])
+    wb.save(tmp_path / "samples.xlsx")
+    sp = S.load({"samples": tmp_path / "samples.xlsx"}, tmp_path)
+    assert sp.samples == [{"sample_id": "sam-1", "subject_id": "sub-1"}]
+    monkeypatch.setattr(S, "MAX_XLSX_UNCOMPRESSED", 100)
+    with pytest.raises(ValueError, match="uncompressed"):
+        S.load({"samples": tmp_path / "samples.xlsx"}, tmp_path)
+
+
+def test_matches_tximport_on_real_salmon_output():
+    """
+    tests/golden/: 30 genes (689 transcripts; 10 expressed in all three samples, 10 in some, 10 in
+    none) cut from the demo run's quant.sf files (Discover 427 FN1, FT2, T2, 1 M reads, GENCODE M39),
+    and the counts tximport 1.40.0 (R 4.6.1) gives for them:
+    tximport(files, type = "salmon", tx2gene, countsFromAbundance = "lengthScaledTPM").
+    """
+    g = Path(__file__).parent / "golden"
+    q = G.read_quants({s: g / f"{s}.quant.sf" for s in ("FN1", "FT2", "T2")})
+    tx2gene = pd.read_csv(g / "tx2gene.csv").set_index("transcript_id")["gene_id"]
+    counts, _, missing = G.length_scaled_tpm(q["TPM"], q["NumReads"], q["EffectiveLength"], tx2gene)
+    want = pd.read_csv(g / "tximport_lengthScaledTPM_counts.csv", index_col="gene_id")
+    assert missing == [] and sorted(counts.index) == sorted(want.index)
+    np.testing.assert_allclose(counts.loc[want.index, want.columns].to_numpy(), want.to_numpy(), rtol=1e-9, atol=1e-9)

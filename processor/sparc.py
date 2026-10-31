@@ -11,7 +11,10 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from processor.safe_inputs import InputDir, UnsafeInput, assert_defusedxml
+
 MAX_BYTES = 20 * 2**20
+MAX_XLSX_UNCOMPRESSED = 200 * 2**20      # zip-bomb guard: sum of the members' declared sizes
 SUFFIXES = (".xlsx", ".csv", ".tsv")
 
 
@@ -28,16 +31,19 @@ class Sparc:
     files: list[str] = field(default_factory=list)
 
 
-def _read_table(path: Path) -> list[dict[str, str]]:
+def _read_table(path: Path, inp: InputDir) -> list[dict[str, str]]:
     import pandas as pd
 
-    if path.stat().st_size > MAX_BYTES:
-        raise ValueError(f"{path.name} is larger than {MAX_BYTES // 2**20} MB")
     if path.suffix.lower() == ".xlsx":
-        df = pd.read_excel(path, dtype=str, engine="openpyxl")     # openpyxl parses through defusedxml
+        assert_defusedxml()                        # openpyxl must parse the (untrusted) XML through defusedxml
+        if Path(inp.check(path)).stat().st_size > MAX_BYTES or inp.xlsx_uncompressed_size(path) > MAX_XLSX_UNCOMPRESSED:
+            raise UnsafeInput(f"{inp.rel(path)} is larger than {MAX_BYTES // 2**20} MB "
+                              f"(or {MAX_XLSX_UNCOMPRESSED // 2**20} MB uncompressed)")
+        with inp.open_checked(path) as fh:
+            df = pd.read_excel(fh, dtype=str, engine="openpyxl")
     else:
-        df = pd.read_csv(path, dtype=str, sep="\t" if path.suffix.lower() == ".tsv" else ",",
-                         keep_default_na=False, encoding="utf-8-sig")
+        df = inp.read_csv(path, MAX_BYTES, dtype=str, sep="\t" if path.suffix.lower() == ".tsv" else ",",
+                          keep_default_na=False, encoding="utf-8-sig")
     df = df.fillna("")
     df.columns = [snake(c) for c in df.columns]
     rows = [{k: str(v).strip() for k, v in r.items() if k} for r in df.to_dict("records")]
@@ -58,14 +64,15 @@ def find(files: list[Path], root: Path, exclude: Path | None) -> dict[str, Path]
 
 def load(found: dict[str, Path], root: Path) -> Sparc:
     sp = Sparc()
+    inp = InputDir(root)
     if "samples" in found:
-        rows = _read_table(found["samples"])
+        rows = _read_table(found["samples"], inp)
         if rows and "subject_id" in rows[0] and "fastq_1" not in rows[0]:
             sp.samples = rows
             sp.sample_columns = list(rows[0])
             sp.files.append(found["samples"].relative_to(root).as_posix())
     if "subjects" in found:
-        rows = _read_table(found["subjects"])
+        rows = _read_table(found["subjects"], inp)
         if rows and "subject_id" in rows[0]:
             sp.subjects = {r["subject_id"]: r for r in rows if r.get("subject_id")}
             sp.subject_columns = list(rows[0])

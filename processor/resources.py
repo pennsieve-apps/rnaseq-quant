@@ -1,10 +1,9 @@
 """
-CPU and memory the container may use (cgroup v2, then v1), and the peak memory of this
-process and its children (salmon).
+The memory the container may use (cgroup v2, then v1), and the peak memory of this process and
+its children (salmon). Thread counts come from safe_inputs.cpu_threads().
 """
 from __future__ import annotations
 
-import math
 import resource
 
 
@@ -14,25 +13,6 @@ def _read(path: str) -> str | None:
             return fh.read().strip()
     except OSError:
         return None
-
-
-def cgroup_cpus() -> int | None:
-    """CPUs from the cgroup quota, or None without a quota."""
-    v2 = _read("/sys/fs/cgroup/cpu.max")
-    if v2:
-        quota, period = (v2.split() + ["100000"])[:2]
-        if quota != "max":
-            return max(1, math.ceil(int(quota) / int(period)))
-        return None
-    quota, period = _read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"), _read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
-    if quota and period and int(quota) > 0 and int(period) > 0:
-        return max(1, math.ceil(int(quota) / int(period)))
-    return None
-
-
-def threads(requested: int) -> int:
-    """THREADS, or (0) the cgroup CPU quota; 2 when there is no quota."""
-    return requested if requested > 0 else (cgroup_cpus() or 2)
 
 
 def memory_limit() -> int | None:

@@ -101,6 +101,37 @@ references:
     value: 'pmid:26925227'
     description: PubMed ID
 - type: article
+  title: 'Alignment and mapping methodology influence transcript abundance estimation'
+  authors:
+  - family-names: 'Srivastava'
+    given-names: 'Avi'
+  - family-names: 'Malik'
+    given-names: 'Laraib'
+  - family-names: 'Sarkar'
+    given-names: 'Hirak'
+  - family-names: 'Zakeri'
+    given-names: 'Mohsen'
+  - family-names: 'Almodaresi'
+    given-names: 'Fatemeh'
+  - family-names: 'Soneson'
+    given-names: 'Charlotte'
+  - family-names: 'Love'
+    given-names: 'Michael I.'
+  - family-names: 'Kingsford'
+    given-names: 'Carl'
+  - family-names: 'Patro'
+    given-names: 'Rob'
+  year: 2020
+  journal: 'Genome Biology'
+  volume: 21
+  issue: '1'
+  start: '239'
+  doi: 10.1186/s13059-020-02151-8
+  identifiers:
+  - type: other
+    value: 'pmid:32894187'
+    description: PubMed ID
+- type: article
   title: 'GENCODE 2025: reference gene annotation for human and mouse'
   authors:
   - family-names: 'Mudge'
