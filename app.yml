@@ -26,7 +26,9 @@ application:
     - musculoskeletal
 runtime:
   cpu: 8192
-  # Measured in the linux/amd64 image; see README "Runtime".
+  # Measured (linux/amd64 image, emulated, 4 CPUs, transcripts-only GENCODE M39 index): ~25 M
+  # single-end 50 bp reads per sample in 4-5 min, salmon peak 3.6 GB + Python 0.6 GB. 16 GiB
+  # leaves room for a decoy-aware index (larger; not measured) and paired-end libraries.
   memory: 16384
   computeTypes:
     - standard
