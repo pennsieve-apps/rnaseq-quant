@@ -98,3 +98,10 @@ outputs:
     mediaTypes:
       - text/tab-separated-values
       - application/json
+
+# How a release is tested before it is made public: the inputs a review run uses.
+# See app-deploy-service docs/app-manifest-review.md.
+review:
+  version: 1
+  generate:
+    command: python -m tests.make_fixture "$REVIEW_INPUT_DIR" --index tests/fixtures/index

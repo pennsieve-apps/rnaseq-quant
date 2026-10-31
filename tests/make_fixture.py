@@ -1,6 +1,7 @@
 """
 A tiny synthetic bulk RNA-seq run: six transcripts of four genes, a salmon index built from them
-(needs `salmon` on PATH, or SALMON_BIN), and reads drawn from known abundances:
+(needs `salmon` on PATH, or SALMON_BIN; or --index copies a prebuilt one), and reads drawn from
+known abundances:
 
   reads/pool-A1/A1_S1_L001_R1_001.fastq.gz, A1_S1_L002_R1_001.fastq.gz   single-end, two lanes
   reads/pool-B1/B1_S2_L001_R1_001.fastq.gz, B1_S2_L001_R2_001.fastq.gz   paired-end
@@ -12,6 +13,10 @@ A tiny synthetic bulk RNA-seq run: six transcripts of four genes, a salmon index
 
   python -m tests.make_fixture data/fixture            # linked: reads/ and index/
   python -m tests.make_fixture data/fixture --flat     # reads at the root next to index/
+  python -m tests.make_fixture data/fixture --index tests/fixtures/index   # no salmon needed
+
+tests/fixtures/index is this index as salmon 2.8.0 (the image's) builds it, for a release review,
+which runs this generator without salmon.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ import gzip
 import json
 import os
 import random
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -107,9 +113,12 @@ def write_sparc(d: Path) -> None:
         wb.save(d / name)
 
 
-def make_fixture(root: Path, flat: bool = False, seed: int = 42) -> Path:
+def make_fixture(root: Path, flat: bool = False, seed: int = 42, index: Path | None = None) -> Path:
     seqs = sequences()
-    build_index(root, seqs)
+    if index:
+        shutil.copytree(index, root / "index", dirs_exist_ok=True)
+    else:
+        build_index(root, seqs)
     reads = root if flat else root / "reads"
     rng = random.Random(seed)
     a1 = [f[:READ_LEN] for f in fragments(seqs, ABUNDANCE["A1"], N_FRAGMENTS, rng)]
@@ -130,5 +139,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("root", type=Path)
     ap.add_argument("--flat", action="store_true")
+    ap.add_argument("--index", type=Path, help="copy this prebuilt index (e.g. tests/fixtures/index) instead of running salmon")
     a = ap.parse_args()
-    make_fixture(a.root, a.flat)
+    make_fixture(a.root, a.flat, index=a.index)

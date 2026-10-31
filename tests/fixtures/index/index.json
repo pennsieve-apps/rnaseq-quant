@@ -1,0 +1,9 @@
+{
+  "organism": "Mus musculus",
+  "source": "synthetic",
+  "assembly": "",
+  "salmon_version": "2.8.0",
+  "kmer_len": 31,
+  "decoys": false,
+  "inputs": {}
+}

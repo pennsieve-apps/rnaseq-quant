@@ -1,0 +1,5 @@
+gene_id,gene_name,gene_type,chrom,length
+G1.1,Alpha,protein_coding,chr1,1000
+G2.1,Beta,protein_coding,chr1,1000
+G3.1,Gamma,protein_coding,chr1,1000
+G4.1,Delta,protein_coding,chr1,1000
