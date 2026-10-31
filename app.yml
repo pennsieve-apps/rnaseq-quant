@@ -1,0 +1,98 @@
+# yaml-language-server: $schema=https://schemas.pennsieve.io/app-manifest/v1.json
+schemaVersion: "1.0"
+application:
+  name: Bulk RNA-seq Quantification
+  description: >-
+    Turns bulk RNA-seq FASTQ files into a gene count table for differential expression. Per
+    sample: fastp trims adapters and low-quality bases and writes a QC report; salmon
+    quantifies transcripts against an index from rnaseq-index (selective alignment, library
+    type detected automatically, sequence-bias correction, fragment GC-bias correction for
+    paired-end). Transcript estimates are summed to genes as tximport's lengthScaledTPM, so the
+    integer counts need no length offsets in DESeq2 or edgeR. Single- and paired-end, stranded
+    or not, several lanes per sample; samples are found by their Illumina file names or a
+    sample sheet, and SPARC samples/subjects metadata is joined by the sam-/sub-/pool- folders.
+  type: processor
+  tags:
+    - bulk-rna-seq
+    - transcriptomics
+    - genomics
+    - quantification
+    - quality-control
+    - trimming
+    - salmon
+    - fastp
+    - neuroscience
+    - pain
+    - musculoskeletal
+runtime:
+  cpu: 8192
+  # Measured in the linux/amd64 image; see README "Runtime".
+  memory: 16384
+  computeTypes:
+    - standard
+  timeoutSeconds: 43200
+parameters:
+  - name: SAMPLE_SHEET
+    type: string
+    label: Sample sheet
+    description: >-
+      File name of an optional sample sheet, looked for anywhere in the reads (shallowest wins):
+      CSV with sample_id, fastq_1, fastq_2 (empty for single-end) and any metadata columns; one
+      row per sample, or one per lane with the same sample_id. FASTQ paths are matched against
+      the files under the input (equal to, or the end of, their path). With a sheet only its
+      samples are quantified. Without one, samples are grouped by file name.
+    defaultValue: samples.csv
+  - name: METADATA_COLUMNS
+    type: string
+    label: Metadata columns
+    description: >-
+      Comma-separated SPARC metadata columns (snake_case) copied into samples.csv; every SPARC
+      column goes to samples_full.csv, so clinical fields are not spread unless asked for.
+    defaultValue: subject_experimental_group,sample_experimental_group,sex,age,species,sample_anatomical_location,laterality
+  - name: THREADS
+    type: integer
+    label: Threads
+    description: Threads for fastp and salmon; 0 = from the container's CPU quota.
+    defaultValue: 0
+    min: 0
+inputs:
+  - name: reads
+    description: >-
+      FASTQ files (.fastq.gz, .fq.gz, .fastq, .fq) anywhere below: Illumina names
+      <sample>_S<n>_L<lane>_R1/R2_001, <sample>_R1/_R2 or <sample>_1/_2 (no read tag:
+      single-end); lanes of a sample are combined; paired when every R1 has its R2; index reads
+      (I1/I2) are ignored. Optional: samples.csv sample sheet, SPARC samples.xlsx/subjects.xlsx.
+    mediaTypes:
+      - application/gzip
+      - text/csv
+      - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    formats:
+      - format_1930
+    placement: subfolder
+    required: true
+  - name: index
+    description: >-
+      The output of rnaseq-index (salmon/, tx2gene.csv, genes.csv, index.json), usually a
+      workspace reference. Its salmon major version must match this app's (2).
+    placement: subfolder
+    required: true
+outputs:
+  - name: counts
+    description: >-
+      gene_counts.csv (gene_id, gene_name, one integer column per sample: lengthScaledTPM
+      counts), gene_tpm.csv (same shape, TPM), samples.csv (sample_id, files, layout, reads_in,
+      reads_after_trim, mapping_rate, library_type, metadata columns), samples_full.csv (every
+      metadata column), qc/<sample_id>.fastp.json, .fastp.html, .salmon.json, summary.json,
+      provenance.json.
+    mediaTypes:
+      - text/csv
+      - text/html
+      - application/json
+  - name: transcripts
+    description: >-
+      <sample_id>/quant.sf (salmon's transcript-level estimates) with cmd_info.json,
+      lib_format_counts.json and aux_info/meta_info.json, the layout tximport and tximeta read;
+      provenance.json.
+    mediaTypes:
+      - text/tab-separated-values
+      - application/json

@@ -1,0 +1,324 @@
+cff-version: "1.2.0"
+message: If you use this app, please cite it and the works it builds on, listed under references.
+type: software
+title: Bulk RNA-seq Quantification
+abstract: Trims bulk RNA-seq reads with fastp, quantifies transcripts with salmon against an rnaseq-index
+  index and sums them to genes as tximport's lengthScaledTPM, writing an integer gene count table, TPM,
+  a sample table with QC numbers and SPARC metadata, and salmon's per-sample transcript estimates.
+authors:
+- name: Pennsieve (University of Pennsylvania)
+repository-code: https://github.com/pennsieve-apps/rnaseq-quant
+license: Apache-2.0
+version: 0.1.0
+keywords:
+- bulk-rna-seq
+- transcriptomics
+- quantification
+- salmon
+- fastp
+- tximport
+references:
+- type: article
+  title: 'Salmon provides fast and bias-aware quantification of transcript expression'
+  authors:
+  - family-names: 'Patro'
+    given-names: 'Rob'
+  - family-names: 'Duggal'
+    given-names: 'Geet'
+  - family-names: 'Love'
+    given-names: 'Michael I'
+  - family-names: 'Irizarry'
+    given-names: 'Rafael A'
+  - family-names: 'Kingsford'
+    given-names: 'Carl'
+  year: 2017
+  journal: 'Nature Methods'
+  volume: 14
+  issue: '4'
+  start: '417'
+  end: '419'
+  doi: 10.1038/nmeth.4197
+  identifiers:
+  - type: other
+    value: 'pmid:28263959'
+    description: PubMed ID
+- type: article
+  title: 'fastp: an ultra-fast all-in-one FASTQ preprocessor'
+  authors:
+  - family-names: 'Chen'
+    given-names: 'Shifu'
+  - family-names: 'Zhou'
+    given-names: 'Yanqing'
+  - family-names: 'Chen'
+    given-names: 'Yaru'
+  - family-names: 'Gu'
+    given-names: 'Jia'
+  year: 2018
+  journal: 'Bioinformatics'
+  volume: 34
+  issue: '17'
+  start: 'i884'
+  end: 'i890'
+  doi: 10.1093/bioinformatics/bty560
+  identifiers:
+  - type: other
+    value: 'pmid:30423086'
+    description: PubMed ID
+- type: article
+  title: 'fastp 1.0: An ultra-fast all-round tool for FASTQ data quality control and preprocessing'
+  authors:
+  - family-names: 'Chen'
+    given-names: 'Shifu'
+  year: 2025
+  journal: 'iMeta'
+  volume: 4
+  issue: '5'
+  start: 'e70078'
+  doi: 10.1002/imt2.70078
+  identifiers:
+  - type: other
+    value: 'pmid:41112039'
+    description: PubMed ID
+- type: article
+  title: 'Differential analyses for RNA-seq: transcript-level estimates improve gene-level inferences'
+  authors:
+  - family-names: 'Soneson'
+    given-names: 'Charlotte'
+    orcid: https://orcid.org/0000-0003-3833-2169
+  - family-names: 'Love'
+    given-names: 'Michael I.'
+    orcid: https://orcid.org/0000-0001-8401-0545
+  - family-names: 'Robinson'
+    given-names: 'Mark D.'
+    orcid: https://orcid.org/0000-0002-3048-5518
+  year: 2015
+  journal: 'F1000Research'
+  volume: 4
+  start: '1521'
+  doi: 10.12688/f1000research.7563.2
+  identifiers:
+  - type: other
+    value: 'pmid:26925227'
+    description: PubMed ID
+- type: article
+  title: 'GENCODE 2025: reference gene annotation for human and mouse'
+  authors:
+  - family-names: 'Mudge'
+    given-names: 'Jonathan M'
+    orcid: https://orcid.org/0000-0003-4789-7495
+  - family-names: 'Carbonell-Sala'
+    given-names: 'Sílvia'
+  - family-names: 'Diekhans'
+    given-names: 'Mark'
+    orcid: https://orcid.org/0000-0002-0430-0989
+  - family-names: 'Martinez'
+    given-names: 'Jose Gonzalez'
+  - family-names: 'Hunt'
+    given-names: 'Toby'
+  - family-names: 'Jungreis'
+    given-names: 'Irwin'
+    orcid: https://orcid.org/0000-0002-3197-5367
+  - family-names: 'Loveland'
+    given-names: 'Jane E'
+    orcid: https://orcid.org/0000-0002-7669-2934
+  - family-names: 'Arnan'
+    given-names: 'Carme'
+    orcid: https://orcid.org/0000-0002-7431-2088
+  - family-names: 'Barnes'
+    given-names: 'If'
+  - family-names: 'Bennett'
+    given-names: 'Ruth'
+  - family-names: 'Berry'
+    given-names: 'Andrew'
+  - family-names: 'Bignell'
+    given-names: 'Alexandra'
+  - family-names: 'Cerdán-Vélez'
+    given-names: 'Daniel'
+  - family-names: 'Cochran'
+    given-names: 'Kelly'
+  - family-names: 'Cortés'
+    given-names: 'Lucas T'
+  - family-names: 'Davidson'
+    given-names: 'Claire'
+  - family-names: 'Donaldson'
+    given-names: 'Sarah'
+  - family-names: 'Dursun'
+    given-names: 'Cagatay'
+  - family-names: 'Fatima'
+    given-names: 'Reham'
+  - family-names: 'Hardy'
+    given-names: 'Matthew'
+  - family-names: 'Hebbar'
+    given-names: 'Prajna'
+  - family-names: 'Hollis'
+    given-names: 'Zoe'
+  - family-names: 'James'
+    given-names: 'Benjamin T'
+  - family-names: 'Jiang'
+    given-names: 'Yunzhe'
+  - family-names: 'Johnson'
+    given-names: 'Rory'
+  - family-names: 'Kaur'
+    given-names: 'Gazaldeep'
+  - family-names: 'Kay'
+    given-names: 'Mike'
+  - family-names: 'Mangan'
+    given-names: 'Riley J'
+  - family-names: 'Maquedano'
+    given-names: 'Miguel'
+  - family-names: 'Gómez'
+    given-names: 'Laura Martínez'
+  - family-names: 'Mathlouthi'
+    given-names: 'Nourhen'
+  - family-names: 'Merritt'
+    given-names: 'Ryan'
+  - family-names: 'Ni'
+    given-names: 'Pengyu'
+  - family-names: 'Palumbo'
+    given-names: 'Emilio'
+  - family-names: 'Perteghella'
+    given-names: 'Tamara'
+  - family-names: 'Pozo'
+    given-names: 'Fernando'
+  - family-names: 'Raj'
+    given-names: 'Shriya'
+  - family-names: 'Sisu'
+    given-names: 'Cristina'
+  - family-names: 'Steed'
+    given-names: 'Emily'
+  - family-names: 'Sumathipala'
+    given-names: 'Dulika'
+  - family-names: 'Suner'
+    given-names: 'Marie-Marthe'
+    orcid: https://orcid.org/0000-0002-0380-7171
+  - family-names: 'Uszczynska-Ratajczak'
+    given-names: 'Barbara'
+  - family-names: 'Wass'
+    given-names: 'Elizabeth'
+  - family-names: 'Yang'
+    given-names: 'Yucheng T'
+  - family-names: 'Zhang'
+    given-names: 'Dingyao'
+  - family-names: 'Finn'
+    given-names: 'Robert D'
+    orcid: https://orcid.org/0000-0001-8626-2148
+  - family-names: 'Gerstein'
+    given-names: 'Mark'
+  - family-names: 'Guigó'
+    given-names: 'Roderic'
+  - family-names: 'Hubbard'
+    given-names: 'Tim J P'
+  - family-names: 'Kellis'
+    given-names: 'Manolis'
+  - family-names: 'Kundaje'
+    given-names: 'Anshul'
+    orcid: https://orcid.org/0000-0003-3084-2287
+  - family-names: 'Paten'
+    given-names: 'Benedict'
+    orcid: https://orcid.org/0000-0001-8863-3539
+  - family-names: 'Tress'
+    given-names: 'Michael L'
+    orcid: https://orcid.org/0000-0001-9046-6370
+  - family-names: 'Birney'
+    given-names: 'Ewan'
+    orcid: https://orcid.org/0000-0001-8314-8497
+  - family-names: 'Martin'
+    given-names: 'Fergal J'
+    orcid: https://orcid.org/0000-0002-1672-050X
+  - family-names: 'Frankish'
+    given-names: 'Adam'
+    orcid: https://orcid.org/0000-0002-4333-628X
+  year: 2025
+  journal: 'Nucleic Acids Research'
+  volume: 53
+  issue: 'D1'
+  start: 'D966'
+  end: 'D975'
+  doi: 10.1093/nar/gkae1078
+  identifiers:
+  - type: other
+    value: 'pmid:39565199'
+    description: PubMed ID
+- type: article
+  title: 'Sex-dependent differences in the genomic profile of lingual sensory neurons in naïve and tongue-tumor bearing mice'
+  authors:
+  - family-names: 'Ibrahim'
+    given-names: 'Tarek'
+  - family-names: 'Wu'
+    given-names: 'Ping'
+  - family-names: 'Wang'
+    given-names: 'Li-Ju'
+  - family-names: 'Fang-Mei'
+    given-names: 'Chang'
+  - family-names: 'Murillo'
+    given-names: 'Josue'
+  - family-names: 'Merlo'
+    given-names: 'Jaclyn'
+  - family-names: 'Shein'
+    given-names: 'Sergey S.'
+  - family-names: 'Tumanov'
+    given-names: 'Alexei V.'
+  - family-names: 'Lai'
+    given-names: 'Zhao'
+  - family-names: 'Weldon'
+    given-names: 'Korri'
+  - family-names: 'Chen'
+    given-names: 'Yidong'
+  - family-names: 'Ruparel'
+    given-names: 'Shivani'
+  year: 2023
+  journal: 'Scientific Reports'
+  volume: 13
+  issue: '1'
+  start: '13117'
+  doi: 10.1038/s41598-023-40380-6
+  identifiers:
+  - type: other
+    value: 'pmid:37573456'
+    description: PubMed ID
+- type: software
+  title: salmon
+  authors:
+  - name: 'Rob Patro and the COMBINE-lab'
+  version: 2.8.0
+  license: BSD-3-Clause
+  repository-code: https://github.com/COMBINE-lab/salmon
+- type: software
+  title: fastp
+  authors:
+  - name: 'OpenGene - Open Source Genetics Toolbox'
+  version: 1.4.0
+  license: MIT
+  repository-code: https://github.com/OpenGene/fastp
+- type: data
+  title: 'Sex-dependent differences in the genomic profile of lingual sensory neurons in naive and tongue-tumor bearing mice'
+  authors:
+  - family-names: 'Tumanov'
+    given-names: 'Alexei V'
+    orcid: https://orcid.org/0000-0001-6042-0152
+  - family-names: 'Shein'
+    given-names: 'Sergey A'
+    orcid: https://orcid.org/0000-0003-0258-425X
+  - family-names: 'Lai'
+    given-names: 'Zhao'
+  - family-names: 'Chen'
+    given-names: 'Yidong'
+    orcid: https://orcid.org/0000-0001-6806-2185
+  - family-names: 'Ruparel'
+    given-names: 'Shivani B'
+    orcid: https://orcid.org/0000-0002-8232-3780
+  year: 2025
+  version: '1'
+  publisher:
+    name: 'SPARC Portal'
+  license: CC-BY-4.0
+  doi: 10.26275/gaap-zlpj
+  url: https://sparc.science/datasets/427/version/1
+  notes: 'Pennsieve Discover dataset 427, RE-JOIN; demo data of this app. Described by doi:10.1038/s41598-023-40380-6.'
+- type: data
+  title: 'GENCODE mouse release M39 (GRCm39)'
+  authors:
+  - name: 'GENCODE consortium'
+  year: 2025
+  url: https://www.gencodegenes.org/mouse/release_M39.html
+  notes: 'Transcript sequences, comprehensive gene annotation and primary-assembly genome used to build the demo index.'

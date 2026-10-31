@@ -1,0 +1,11 @@
+# Direct dependencies (resolved in python:3.12.16-slim-bookworm, linux/amd64)
+pandas==3.1.0
+numpy==2.5.4
+openpyxl==3.1.5
+defusedxml==0.7.1
+
+# Transitive dependencies, pinned (pip freeze of the built image)
+et_xmlfile==2.0.0
+python-dateutil==3.0.0
+six==1.17.0
+tzdata==2026.6
