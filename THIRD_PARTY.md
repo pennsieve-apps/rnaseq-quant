@@ -19,8 +19,12 @@ the C/C++ runtimes linked into fastp (see their row).
 | python-dateutil 3.0.0, six 1.17.0, tzdata 2026.6 | pandas dependencies. | Apache-2.0 / BSD-3-Clause; MIT; Apache-2.0 | PyPI |
 | python:3.12.16-slim-bookworm | Base image (Debian 12 + CPython 3.12), pinned by digest. | PSF-2.0 (Python); Debian packages under their own free licences | https://hub.docker.com/_/python |
 
-The gene-level summarisation re-implements the published lengthScaledTPM formula of tximport
-(LGPL ≥ 2); no tximport code is included.
+The gene-level summarisation (`processor/aggregate.py`) is a Python re-implementation of
+tximport's `countsFromAbundance = "lengthScaledTPM"` (Soneson C, Love MI, Robinson MD, F1000Research
+2015). It was written following tximport's `summarizeToGene()` and `makeCountsFromAbundance()`
+(thelovelab/tximport, devel commit `2c53267`) and checked against tximport 1.40.0's output. tximport
+itself (LGPL ≥ 2; Michael Love, Charlotte Soneson, Mark Robinson et al.) is not included in or run
+by this image.
 
 ## Data used in testing (not in the image)
 

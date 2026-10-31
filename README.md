@@ -19,7 +19,7 @@ Gene level is tximport's `countsFromAbundance = "lengthScaledTPM"` (Soneson et a
 re-implemented in `processor/aggregate.py` from tximport's `summarizeToGene()` and
 `makeCountsFromAbundance()` (thelovelab/tximport, devel commit `2c53267`) and checked against
 tximport 1.40.0 itself (see "Results"; `tests/golden/` keeps a 30-gene cut of that comparison as a
-test).
+test). tximport (LGPL ≥ 2) is not included in or run by the image; see THIRD_PARTY.md.
 Counts are rounded to integers. This follows established practice (Conesa et al. 2016:
 quality control and trimming, transcript-level quantification; Love et al. 2015 / Soneson et
 al. 2015: transcript estimates summarised to genes for count-based DE).
