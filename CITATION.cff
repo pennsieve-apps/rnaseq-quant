@@ -7,6 +7,11 @@ abstract: Trims bulk RNA-seq reads with fastp, quantifies transcripts with salmo
   a sample table with QC numbers and SPARC metadata, and salmon's per-sample transcript estimates.
 authors:
 - name: Pennsieve (University of Pennsylvania)
+contact:
+- given-names: Joost
+  family-names: Wagenaar
+  orcid: https://orcid.org/0009-0004-5925-5451
+  affiliation: University of Pennsylvania
 repository-code: https://github.com/pennsieve-apps/rnaseq-quant
 license: Apache-2.0
 version: 0.1.0
