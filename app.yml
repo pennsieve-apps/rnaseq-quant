@@ -74,10 +74,24 @@ inputs:
     required: true
   - name: index
     description: >-
-      The output of rnaseq-index (salmon/, tx2gene.csv, genes.csv, index.json), usually a
-      workspace reference. Its salmon major version must match this app's (2).
+      The output of rnaseq-index (salmon/, tx2gene.csv, genes.csv, index.json) for the genome and
+      annotation release the reads come from. On Pennsieve it is filled from the reference
+      catalog (human by default, or mouse); locally, put an rnaseq-index output here. Its salmon
+      major version must match this app's (2).
     placement: subfolder
     required: true
+    reference:
+      kind: genome
+      assetClass: salmon-index
+      toolVersion: ">=2 <3"
+      choice: user
+      organisms: [9606, 10090]
+      default:
+        taxonomyId: 9606
+        assembly: GCA_000001405.29
+        annotation: {provider: GENCODE, version: "50"}
+      source: https://github.com/pennsieve-apps/rnaseq-index
+      license: LicenseRef-GENCODE
 outputs:
   - name: counts
     description: >-
