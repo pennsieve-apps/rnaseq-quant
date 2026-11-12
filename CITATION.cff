@@ -1,5 +1,6 @@
 cff-version: "1.2.0"
-message: If you use this app, please cite it and the works it builds on, listed under references.
+message: >-
+  If you use this app, please cite the work it implements (preferred-citation), this release, and Pennsieve (RRID:SCR_021677); the other works it builds on are listed under references.
 type: software
 title: Bulk RNA-seq Quantification
 abstract: Trims bulk RNA-seq reads with fastp, quantifies transcripts with salmon against an rnaseq-index
@@ -22,6 +23,32 @@ keywords:
 - salmon
 - fastp
 - tximport
+# The work this app implements; the release report's "How to cite" puts it first.
+preferred-citation:
+  type: article
+  title: Salmon provides fast and bias-aware quantification of transcript expression
+  authors:
+  - family-names: Patro
+    given-names: Rob
+  - family-names: Duggal
+    given-names: Geet
+  - family-names: Love
+    given-names: Michael I
+  - family-names: Irizarry
+    given-names: Rafael A
+  - family-names: Kingsford
+    given-names: Carl
+  year: 2017
+  journal: Nature Methods
+  volume: 14
+  issue: '4'
+  start: '417'
+  end: '419'
+  doi: 10.1038/nmeth.4197
+  identifiers:
+  - type: other
+    value: pmid:28263959
+    description: PubMed ID
 references:
 - type: article
   title: 'Salmon provides fast and bias-aware quantification of transcript expression'
