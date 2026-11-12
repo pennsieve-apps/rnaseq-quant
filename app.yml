@@ -21,9 +21,6 @@ application:
     - trimming
     - salmon
     - fastp
-    - neuroscience
-    - pain
-    - musculoskeletal
 runtime:
   cpu: 8192
   # Measured (linux/amd64 image, emulated, 4 CPUs, transcripts-only GENCODE M39 index): ~25 M
